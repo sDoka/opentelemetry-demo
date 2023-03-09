@@ -24,6 +24,11 @@ networks:
     name: opentelemetry-demo
     driver: bridge
 
+volumes:
+  opensearch-data1:
+  opensearch-data2:
+
+
 services:
   # ******************
   # Core Demo Services
@@ -224,7 +229,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 175M
+          memory: 200M
     restart: unless-stopped
     ports:
       - "${FEATURE_FLAG_SERVICE_PORT}"                                  # Feature Flag Service UI
@@ -322,14 +327,10 @@ services:
   # Frontend Proxy (Envoy)
   frontendproxy:
     image: ${IMAGE_NAME}:${IMAGE_VERSION}-frontendproxy
-    container_name: frontend-proxy
     build:
       context: ./
       dockerfile: src/frontendproxy/Dockerfile
-    deploy:
-      resources:
-        limits:
-          memory: 50M
+    container_name: frontend-proxy
     ports:
       - "${ENVOY_PORT}:${ENVOY_PORT}"
       - 10000:10000
@@ -395,7 +396,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 120M
+          memory: 70M
     restart: unless-stopped
     ports:
       - "${PAYMENT_SERVICE_PORT}"
@@ -450,7 +451,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 40M
+          memory: 30M
     restart: unless-stopped
     ports:
       - "${QUOTE_SERVICE_PORT}"
@@ -535,18 +536,18 @@ services:
     deploy:
       resources:
         limits:
-          memory: 120M
+          memory: 200M
     restart: unless-stopped
     environment:
       - POSTGRES_USER=ffs
       - POSTGRES_DB=ffs
       - POSTGRES_PASSWORD=ffs
+    logging: *logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d ffs -U ffs"]
       interval: 10s
       timeout: 5s
       retries: 5
-    logging: *logging
 
   # Kafka used by Checkout, Accounting, and Fraud Detection services
   kafka:
@@ -560,7 +561,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 750M
+          memory: 800M
     restart: unless-stopped
     environment:
       - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
@@ -569,14 +570,72 @@ services:
       - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
       - OTEL_RESOURCE_ATTRIBUTES
       - OTEL_SERVICE_NAME=kafka
-      - KAFKA_HEAP_OPTS=-Xmx400m -Xms400m
+    logging: *logging
     healthcheck:
       test: nc -z kafka 9092
       start_period: 10s
       interval: 5s
       timeout: 10s
       retries: 10
-    logging: *logging
+
+  #OpenSearch used by ad-service
+  opensearch-node1: # This is also the hostname of the container within the Docker network (i.e. https://opensearch-node1/)
+    image: opensearchproject/opensearch:latest # Specifying the latest available image - modify if you want a specific version
+    container_name: opensearch-node1
+    environment:
+      - cluster.name=opensearch-cluster # Name the cluster
+      - node.name=opensearch-node1 # Name the node that will run in this container
+      - discovery.seed_hosts=opensearch-node1,opensearch-node2 # Nodes to look for when discovering the cluster
+      - cluster.initial_cluster_manager_nodes=opensearch-node1,opensearch-node2 # Nodes eligible to serve as cluster manager
+      - bootstrap.memory_lock=true # Disable JVM heap memory swapping
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # Set min and max JVM heap sizes to at least 50% of system RAM
+    ulimits:
+      memlock:
+        soft: -1 # Set memlock to unlimited (no soft or hard limit)
+        hard: -1
+      nofile:
+        soft: 65536 # Maximum number of open files for the opensearch user - set to at least 65536
+        hard: 65536
+    volumes:
+      - opensearch-data1:/usr/share/opensearch/data # Creates volume called opensearch-data1 and mounts it to the container
+    ports:
+      - 9200:9200 # REST API
+      - 9600:9600 # Performance Analyzer
+    networks:
+      - default # All of the containers will join the same Docker bridge network
+  opensearch-node2:
+    image: opensearchproject/opensearch:latest # This should be the same image used for opensearch-node1 to avoid issues
+    container_name: opensearch-node2
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=opensearch-node2
+      - discovery.seed_hosts=opensearch-node1,opensearch-node2
+      - cluster.initial_cluster_manager_nodes=opensearch-node1,opensearch-node2
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data2:/usr/share/opensearch/data
+    networks:
+      - default
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:latest # Make sure the version of opensearch-dashboards matches the version of opensearch installed on other nodes
+    container_name: opensearch-dashboards
+    ports:
+      - 5601:5601 # Map host port 5601 to container port 5601
+    expose:
+      - "5601" # Expose port 5601 for web access to OpenSearch Dashboards
+    environment:
+      OPENSEARCH_HOSTS: '["https://opensearch-node1:9200","https://opensearch-node2:9200"]' # Define the OpenSearch nodes that OpenSearch Dashboards will query
+    networks:
+      - default
+
 
   # Redis used by Cart service
   redis-cart:
@@ -610,7 +669,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 300M
+          memory: 275M
     restart: unless-stopped
     ports:
       - "${JAEGER_SERVICE_PORT}"                    # Jaeger UI
@@ -624,10 +683,6 @@ services:
   grafana:
     image: grafana/grafana:9.1.0
     container_name: grafana
-    deploy:
-      resources:
-        limits:
-          memory: 75M
     volumes:
       - ./src/grafana/grafana.ini:/etc/grafana/grafana.ini
       - ./src/grafana/provisioning/:/etc/grafana/provisioning/
@@ -642,7 +697,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 125M
+          memory: 100M
     restart: unless-stopped
     command: [ "--config=/etc/otelcol-config.yml", "--config=/etc/otelcol-config-extras.yml" ]
     volumes:
@@ -672,10 +727,6 @@ services:
       - --enable-feature=exemplar-storage
     volumes:
       - ./src/prometheus/prometheus-config.yaml:/etc/prometheus/prometheus-config.yaml
-    deploy:
-      resources:
-        limits:
-          memory: 300M
     ports:
       - "${PROMETHEUS_SERVICE_PORT}:${PROMETHEUS_SERVICE_PORT}"
     logging: *logging

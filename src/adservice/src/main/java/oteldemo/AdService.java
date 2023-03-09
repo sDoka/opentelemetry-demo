@@ -18,11 +18,6 @@ package oteldemo;
 
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Iterables;
-import oteldemo.Demo.Ad;
-import oteldemo.Demo.AdRequest;
-import oteldemo.Demo.AdResponse;
-import oteldemo.Demo.GetFlagResponse;
-import oteldemo.FeatureFlagServiceGrpc.FeatureFlagServiceBlockingStub;
 import io.grpc.*;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import io.grpc.protobuf.services.*;
@@ -47,6 +42,11 @@ import java.util.Random;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import oteldemo.Demo.Ad;
+import oteldemo.Demo.AdRequest;
+import oteldemo.Demo.AdResponse;
+import oteldemo.Demo.GetFlagResponse;
+import oteldemo.FeatureFlagServiceGrpc.FeatureFlagServiceBlockingStub;
 
 public final class AdService {
 
@@ -63,53 +63,53 @@ public final class AdService {
   private static final Meter meter = GlobalOpenTelemetry.getMeter("adservice");
 
   private static final LongCounter adRequestsCounter =
-      meter
-          .counterBuilder("app.ads.ad_requests")
-          .setDescription("Counts ad requests by request and response type")
-          .build();
+          meter
+                  .counterBuilder("app.ads.ad_requests")
+                  .setDescription("Counts ad requests by request and response type")
+                  .build();
 
   private static final AttributeKey<String> adRequestTypeKey =
-      AttributeKey.stringKey("app.ads.ad_request_type");
+          AttributeKey.stringKey("app.ads.ad_request_type");
   private static final AttributeKey<String> adResponseTypeKey =
-      AttributeKey.stringKey("app.ads.ad_response_type");
+          AttributeKey.stringKey("app.ads.ad_response_type");
 
   private void start() throws IOException {
     int port =
-        Integer.parseInt(
-            Optional.ofNullable(System.getenv("AD_SERVICE_PORT"))
-                .orElseThrow(
-                    () ->
-                        new IllegalStateException(
-                            "environment vars: AD_SERVICE_PORT must not be null")));
+            Integer.parseInt(
+                    Optional.ofNullable(System.getenv("AD_SERVICE_PORT"))
+                            .orElseThrow(
+                                    () ->
+                                            new IllegalStateException(
+                                                    "environment vars: AD_SERVICE_PORT must not be null")));
     healthMgr = new HealthStatusManager();
 
     String featureFlagServiceAddr =
-        Optional.ofNullable(System.getenv("FEATURE_FLAG_GRPC_SERVICE_ADDR"))
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "environment vars: FEATURE_FLAG_GRPC_SERVICE_ADDR must not be null"));
+            Optional.ofNullable(System.getenv("FEATURE_FLAG_GRPC_SERVICE_ADDR"))
+                    .orElseThrow(
+                            () ->
+                                    new IllegalStateException(
+                                            "environment vars: FEATURE_FLAG_GRPC_SERVICE_ADDR must not be null"));
     FeatureFlagServiceBlockingStub featureFlagServiceStub =
-        oteldemo.FeatureFlagServiceGrpc.newBlockingStub(
-            ManagedChannelBuilder.forTarget(featureFlagServiceAddr).usePlaintext().build());
+            oteldemo.FeatureFlagServiceGrpc.newBlockingStub(
+                    ManagedChannelBuilder.forTarget(featureFlagServiceAddr).usePlaintext().build());
 
     server =
-        ServerBuilder.forPort(port)
-            .addService(new AdServiceImpl(featureFlagServiceStub))
-            .addService(healthMgr.getHealthService())
-            .build()
-            .start();
+            ServerBuilder.forPort(port)
+                    .addService(new AdServiceImpl(featureFlagServiceStub))
+                    .addService(healthMgr.getHealthService())
+                    .build()
+                    .start();
     logger.info("Ad Service started, listening on " + port);
     Runtime.getRuntime()
-        .addShutdownHook(
-            new Thread(
-                () -> {
-                  // Use stderr here since the logger may have been reset by its JVM shutdown hook.
-                  System.err.println(
-                      "*** shutting down gRPC ads server since JVM is shutting down");
-                  AdService.this.stop();
-                  System.err.println("*** server shut down");
-                }));
+            .addShutdownHook(
+                    new Thread(
+                            () -> {
+                              // Use stderr here since the logger may have been reset by its JVM shutdown hook.
+                              System.err.println(
+                                      "*** shutting down gRPC ads server since JVM is shutting down");
+                              AdService.this.stop();
+                              System.err.println("*** server shut down");
+                            }));
     healthMgr.setStatus("", ServingStatus.SERVING);
   }
 
@@ -160,7 +160,7 @@ public final class AdService {
 
         span.setAttribute("app.ads.contextKeys", req.getContextKeysList().toString());
         span.setAttribute("app.ads.contextKeys.count", req.getContextKeysCount());
-        logger.info("received ad request (context_words=" + req.getContextKeysList() + ")");
+        logger.info("Received ad request (context_words=" + req.getContextKeysList() + ")");
         if (req.getContextKeysCount() > 0) {
           for (int i = 0; i < req.getContextKeysCount(); i++) {
             Collection<Ad> ads = service.getAdsByCategory(req.getContextKeys(i));
@@ -183,9 +183,9 @@ public final class AdService {
         span.setAttribute("app.ads.ad_response_type", adResponseType.name());
 
         adRequestsCounter.add(
-            1,
-            Attributes.of(
-                adRequestTypeKey, adRequestType.name(), adResponseTypeKey, adResponseType.name()));
+                1,
+                Attributes.of(
+                        adRequestTypeKey, adRequestType.name(), adResponseTypeKey, adResponseType.name()));
 
         if (checkAdFailure()) {
           logger.warn(ADSERVICE_FAIL_FEATURE_FLAG + " fail feature flag enabled");
@@ -197,7 +197,7 @@ public final class AdService {
         responseObserver.onCompleted();
       } catch (StatusRuntimeException e) {
         span.addEvent(
-            "Error", Attributes.of(AttributeKey.stringKey("exception.message"), e.getMessage()));
+                "Error", Attributes.of(AttributeKey.stringKey("exception.message"), e.getMessage()));
         span.setStatus(StatusCode.ERROR);
         logger.log(Level.WARN, "GetAds Failed with status {}", e.getStatus());
         responseObserver.onError(e);
@@ -211,10 +211,10 @@ public final class AdService {
       }
 
       GetFlagResponse response =
-          featureFlagServiceStub.getFlag(
-              oteldemo.Demo.GetFlagRequest.newBuilder()
-                  .setName(ADSERVICE_FAIL_FEATURE_FLAG)
-                  .build());
+              featureFlagServiceStub.getFlag(
+                      oteldemo.Demo.GetFlagRequest.newBuilder()
+                              .setName(ADSERVICE_FAIL_FEATURE_FLAG)
+                              .build());
       return response.getFlag().getEnabled();
     }
   }
@@ -245,6 +245,8 @@ public final class AdService {
         ads.add(Iterables.get(allAds, random.nextInt(allAds.size())));
       }
       span.setAttribute("app.ads.count", ads.size());
+      getDeeperSpanLvlOne(span.getSpanContext().getTraceId());
+
 
     } finally {
       span.end();
@@ -252,6 +254,16 @@ public final class AdService {
 
     return ads;
   }
+
+  private static void getDeeperSpanLvlOne(String traceId) {
+    logger.info("Span goes deeper lvl one", traceId);
+    getDeeperSpanLvlTwo(traceId);
+  }
+
+  private static void getDeeperSpanLvlTwo(String traceId) {
+    logger.info("Span goes deeper lvl one", traceId);
+  }
+
 
   private static AdService getInstance() {
     return service;
@@ -266,49 +278,49 @@ public final class AdService {
 
   private static ImmutableListMultimap<String, Ad> createAdsMap() {
     Ad binoculars =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/2ZYFJ3GM2N")
-            .setText("Roof Binoculars for sale. 50% off.")
-            .build();
+            Ad.newBuilder()
+                    .setRedirectUrl("/product/2ZYFJ3GM2N")
+                    .setText("C-Roof Binoculars for sale. 50% off.")
+                    .build();
     Ad explorerTelescope =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/66VCHSJNUP")
-            .setText("Starsense Explorer Refractor Telescope for sale. 20% off.")
-            .build();
+            Ad.newBuilder()
+                    .setRedirectUrl("/product/66VCHSJNUP")
+                    .setText("C-Starsense Explorer Refractor Telescope for sale. 20% off.")
+                    .build();
     Ad colorImager =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/0PUK6V6EV0")
-            .setText("Solar System Color Imager for sale. 30% off.")
-            .build();
+            Ad.newBuilder()
+                    .setRedirectUrl("/product/0PUK6V6EV0")
+                    .setText("C-Solar System Color Imager for sale. 30% off.")
+                    .build();
     Ad opticalTube =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/9SIQT8TOJO")
-            .setText("Optical Tube Assembly for sale. 10% off.")
-            .build();
+            Ad.newBuilder()
+                    .setRedirectUrl("/product/9SIQT8TOJO")
+                    .setText("C-Optical Tube Assembly for sale. 10% off.")
+                    .build();
     Ad travelTelescope =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/1YMWWN1N4O")
-            .setText(
-                "Eclipsmart Travel Refractor Telescope for sale. Buy one, get second kit for free")
-            .build();
+            Ad.newBuilder()
+                    .setRedirectUrl("/product/1YMWWN1N4O")
+                    .setText(
+                            "C-Eclipsmart Travel Refractor Telescope for sale. Buy one, get second kit for free")
+                    .build();
     Ad solarFilter =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/6E92ZMYYFZ")
-            .setText("Solar Filter for sale. Buy two, get third one for free")
-            .build();
+            Ad.newBuilder()
+                    .setRedirectUrl("/product/6E92ZMYYFZ")
+                    .setText("C-Solar Filter for sale. Buy two, get third one for free")
+                    .build();
     Ad cleaningKit =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/L9ECAV7KIM")
-            .setText("Lens Cleaning Kit for sale. Buy one, get second one for free")
-            .build();
+            Ad.newBuilder()
+                    .setRedirectUrl("/product/L9ECAV7KIM")
+                    .setText("C-Lens Cleaning Kit for sale. Buy one, get second one for free")
+                    .build();
     return ImmutableListMultimap.<String, Ad>builder()
-        .putAll("binoculars", binoculars)
-        .putAll("telescopes", explorerTelescope)
-        .putAll("accessories", colorImager, solarFilter, cleaningKit)
-        .putAll("assembly", opticalTube)
-        .putAll("travel", travelTelescope)
-        // Keep the books category free of ads to ensure the random code branch is tested
-        .build();
+            .putAll("binoculars", binoculars)
+            .putAll("telescopes", explorerTelescope)
+            .putAll("accessories", colorImager, solarFilter, cleaningKit)
+            .putAll("assembly", opticalTube)
+            .putAll("travel", travelTelescope)
+            // Keep the books category free of ads to ensure the random code branch is tested
+            .build();
   }
 
   /** Main launches the server from the command line. */
