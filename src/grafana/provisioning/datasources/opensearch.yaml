@@ -9,7 +9,7 @@ datasources:
     editable: true
     isDefault: false
     jsonData:
-      interval: 'No Pattern'
+      interval: ''
       timeField: '@timestamp'
       esVersion: '8.0.0'
       logMessageField: _source
