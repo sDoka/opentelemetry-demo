@@ -14,4 +14,4 @@ datasources:
 #        mapTagNamesEnabled: true
         spanStartTimeShift: '1h'
         spanEndTimeShift: '1h'
-        filterByTraceID: false
+        filterByTraceID: true
