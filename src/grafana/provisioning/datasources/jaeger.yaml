@@ -7,3 +7,11 @@ datasources:
     url: http://jaeger:16686/jaeger/ui
     editable: true
     isDefault: false
+    jsonData:
+      tracesToLogs:
+        datasourceUid: opensearch
+#        mappedTags: [{ key: 'host.name', value: 'Attributes.fluent.tag' }]
+#        mapTagNamesEnabled: true
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        filterByTraceID: true

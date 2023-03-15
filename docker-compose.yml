@@ -13,11 +13,8 @@
 # limitations under the License.
 
 version: '3.9'
-x-default-logging: &logging
-  driver: "json-file"
-  options:
-    max-size: "5m"
-    max-file: "2"
+x-logging: &logging
+  driver: fluentd
 
 networks:
   default:
@@ -54,6 +51,8 @@ services:
         condition: service_started
       kafka:
         condition: service_healthy
+      fluent-bit:
+        condition: service_started
     logging: *logging
 
   # AdService
@@ -82,6 +81,7 @@ services:
       - OTEL_SERVICE_NAME=adservice
     depends_on:
       - otelcol
+      - fluent-bit
     logging: *logging
 
   # Cart service
@@ -110,6 +110,7 @@ services:
     depends_on:
       - redis-cart
       - otelcol
+      - fluent-bit
     logging: *logging
 
   # Checkout service
@@ -159,6 +160,8 @@ services:
         condition: service_started
       kafka:
         condition: service_healthy
+      fluent-bit:
+        condition: service_started
     logging: *logging
 
   # Currency service
@@ -185,6 +188,7 @@ services:
       - OTEL_RESOURCE_ATTRIBUTES=${OTEL_RESOURCE_ATTRIBUTES},service.name=currencyservice   # The C++ SDK does not support OTEL_SERVICE_NAME
     depends_on:
       - otelcol
+      - fluent-bit
     logging: *logging
 
   # Email service
@@ -210,6 +214,7 @@ services:
       - OTEL_SERVICE_NAME=emailservice
     depends_on:
       - otelcol
+      - fluent-bit
     logging: *logging
 
   # Feature Flag service
@@ -242,6 +247,8 @@ services:
     depends_on:
       ffs_postgres:
         condition: service_healthy
+      fluent-bit:
+        condition: service_started
     logging: *logging
 
   # Fraud Detection service
@@ -270,6 +277,8 @@ services:
         condition: service_started
       kafka:
         condition: service_healthy
+      fluent-bit:
+        condition: service_started
     logging: *logging
 
   # Frontend
@@ -317,6 +326,7 @@ services:
       - quoteservice
       - recommendationservice
       - shippingservice
+      - fluent-bit
     logging: *logging
 
   # Frontend Proxy (Envoy)
@@ -352,6 +362,7 @@ services:
       - featureflagservice
       - loadgenerator
       - grafana
+      - fluent-bit
 
   # Load Generator
   loadgenerator:
@@ -381,6 +392,7 @@ services:
       - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
     depends_on:
       - frontend
+      - fluent-bit
     logging: *logging
 
   # Payment service
@@ -408,6 +420,7 @@ services:
       - OTEL_SERVICE_NAME=paymentservice
     depends_on:
       - otelcol
+      - fluent-bit
     logging: *logging
 
   # Product Catalog service
@@ -436,6 +449,7 @@ services:
       - OTEL_SERVICE_NAME=productcatalogservice
     depends_on:
       - otelcol
+      - fluent-bit
     logging: *logging
 
   # Quote service
@@ -462,6 +476,7 @@ services:
       - OTEL_SERVICE_NAME=quoteservice
     depends_on:
       - otelcol
+      - fluent-bit
     logging: *logging
 
   # Recommendation service
@@ -496,6 +511,7 @@ services:
       - productcatalogservice
       - otelcol
       - featureflagservice
+      - fluent-bit
     logging: *logging
 
   # Shipping service
@@ -522,6 +538,7 @@ services:
       - OTEL_SERVICE_NAME=shippingservice
     depends_on:
       - otelcol
+      - fluent-bit
     logging: *logging
 
   # ******************
@@ -546,6 +563,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    depends_on:
+      - fluent-bit
     logging: *logging
 
   # Kafka used by Checkout, Accounting, and Fraud Detection services
@@ -576,6 +595,8 @@ services:
       interval: 5s
       timeout: 10s
       retries: 10
+    depends_on:
+      - fluent-bit
     logging: *logging
 
   # Redis used by Cart service
@@ -590,6 +611,8 @@ services:
     restart: unless-stopped
     ports:
       - "${REDIS_PORT}"
+    depends_on:
+      - fluent-bit
     logging: *logging
 
 
@@ -618,11 +641,13 @@ services:
     environment:
       - COLLECTOR_OTLP_ENABLED=true
       - METRICS_STORAGE_TYPE=prometheus
+    depends_on:
+      - fluent-bit
     logging: *logging
 
   # Grafana
   grafana:
-    image: grafana/grafana:9.1.0
+    image: grafana/grafana:latest
     container_name: grafana
     deploy:
       resources:
@@ -633,6 +658,8 @@ services:
       - ./src/grafana/provisioning/:/etc/grafana/provisioning/
     ports:
       - "${GRAFANA_SERVICE_PORT}"
+    depends_on:
+      - fluent-bit
     logging: *logging
 
   # OpenTelemetry Collector
@@ -653,8 +680,10 @@ services:
       - "4318:4318"     # OTLP over HTTP receiver
       - "9464"          # Prometheus exporter
       - "8888"          # metrics endpoint
+      - "8006"          # fluentd forwarder
     depends_on:
       - jaeger
+      - fluent-bit
     logging: *logging
 
   # Prometheus
@@ -678,6 +707,8 @@ services:
           memory: 300M
     ports:
       - "${PROMETHEUS_SERVICE_PORT}:${PROMETHEUS_SERVICE_PORT}"
+    depends_on:
+      - fluent-bit
     logging: *logging
 
   # *****
@@ -732,3 +763,40 @@ services:
       - recommendationservice
       - shippingservice
       - quoteservice
+
+# added
+  fluent-bit:
+    image: fluent/fluent-bit:latest
+    volumes:
+      - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
+      - ./fluent-parsers.conf:/fluent-bit/etc/fluent-parsers.conf
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+
+  opensearch-cluster:
+    image: opensearchproject/opensearch:latest
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "DISABLE_INSTALL_DEMO_CONFIG=true"
+      - "DISABLE_SECURITY_PLUGIN=true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    depends_on:
+      - fluent-bit
+    logging: *logging
+
+volumes:
+  opensearch-data:
