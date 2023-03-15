@@ -7,3 +7,6 @@ datasources:
     url: http://jaeger:16686/jaeger/ui
     editable: true
     isDefault: false
+    jsonData:
+      tracesToLogs:
+        datasourceUid: opensearch
